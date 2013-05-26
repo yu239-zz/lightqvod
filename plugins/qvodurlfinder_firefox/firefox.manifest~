@@ -1,2 +1,0 @@
-content     sample    firefox/content/
-overlay chrome://browser/content/browser.xul firefox://sample/content/sample.xul
