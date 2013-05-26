@@ -20,7 +20,7 @@ First, go inside the *lightqvod* directory,
 ```bash
 ./install
 ```
-This will initialize lightqvod for the current user. Then use command *lq* everywhere to launch lightqvod. If you want to uninstall lightqvod, add an '-u' option after this command.
+This will initialize lightqvod for the current user. Then use command *lq* everywhere to launch lightqvod. If you want to uninstall lightqvod, add an '-u' option after this command. *Please restart the terminal after installing or uninstalling!!*
 
 Before downloading, you have to tell lightqvod the path you want to store downloaded videos and the path you want to put the cache files during downloading. This can be done by
 ```bash
