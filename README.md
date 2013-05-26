@@ -1,7 +1,7 @@
 ###INTRODUCTION
 
 Lightqvod is a small bash script that helps users download and manage qvod resources from web.
-It makes you a wiarzd with qvod movies.
+It makes you a wizard with qvod movies.
 
 ###WINE
 
