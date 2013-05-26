@@ -22,7 +22,12 @@ First, go inside the *lightqvod* directory,
 ```
 This will initialize lightqvod for the current user. Then use command *lq* everywhere to launch lightqvod. If you want to uninstall lightqvod, add an '-u' option after this command.
 
-To start, use the following command to let lightqvod listen to the port:
+Before downloading, you have to tell lightqvod the path you want to store downloaded videos and the path you want to put the cache files during downloading. This can be done by
+```bash
+lq -c video=<your_video_path> cache=<your_cache_path>
+```
+
+Then to start listening, use the following command:
 ```bash
 lq -l
 ```
