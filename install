@@ -1,0 +1,57 @@
+#!/bin/bash
+
+shell=$(basename $SHELL)
+uninstall=0
+data=${HOME}/.lightqvod
+confile=${data}/config
+queue=${data}/queue
+workers=${data}/workers
+record_path=${data}/record
+lq_bin=${HOME}/bin/lightqvod
+
+((( $# > 1 )) || [ "$1" == "-h" ]) && show_help && exit 0
+
+show_help(){
+    cat <<EOF
+${txtyel}usage:${txtrst}  ./install [-u] [-l]
+
+${bldgrn}-u${txtrst}
+       Uninstall lightqvod.
+${bldgrn}-h${txtrst}
+       Show this help.
+EOF
+}
+
+
+[ "$1" == "-u" ] && uninstall=1
+
+if [ "${shell}" == "bash" ]; then
+    file=${HOME}/.bashrc
+elif [ "${shell}" == "csh" ] || [ "${shell}" == "tcsh" ]; then
+    file=${HOME}/.cshrc
+else
+    file=${HOME}/.profile
+fi
+
+if (( ${uninstall} == 1 )); then
+    sed '/lightqvod/d' ${file} > ${file}.tmp && mv ${file}.tmp ${file}
+    rm -rf ${data}
+    rm -rf ${lq_bin}
+    echo lightqvod uninstalled.
+else	
+    ls ${file} >/dev/null 2>&1
+    (( $? != 0 )) && echo lightqvod install failed. && exit 1
+    echo export PATH=\"${lq_bin}:\${PATH}\" >> ${file}
+    # Prepare the command and data
+    mkdir -p ${lq_bin}
+    cp lq ${lq_bin}/
+    chmod 755 ${lq_bin}/lq
+    mkdir -p ${data}/bin
+    cp bin/qvoddownloader.exe ${data}/bin/
+    touch ${confile}
+    touch ${queue}
+    touch ${record_path}
+    touch ${workers}
+    echo lightqvod installed.
+fi
+    

@@ -1,0 +1,539 @@
+#!/bin/bash
+
+# Text color variables
+txtund=$(tput sgr 0 1)          # Underline
+txtbld=$(tput bold)             # Bold
+bldred=${txtbld}$(tput setaf 1) # red
+bldgrn=${txtbld}$(tput setaf 2) # green
+txtyel=$(tput setaf 3)          # normal yellow
+txtppl=$(tput setaf 5)          # normal purple
+bldblu=${txtbld}$(tput setaf 4) # blue
+bldwht=${txtbld}$(tput setaf 7) # white
+txtrst=$(tput sgr0)             # Reset
+info=${bldwht}*${txtrst}        # Feedback
+pass=${bldblu}*${txtrst}
+warn=${bldred}*${txtrst}
+ques=${bldblu}?${txtrst}
+
+# Variables
+data=${HOME}/.lightqvod
+confile=${data}/config
+queue=${data}/queue
+workers=${data}/workers
+record_path=${data}/record
+qvod_port=62351
+space_escape="\[x20x\]"
+video_extensions="avi|wmv|flv|mkv|mov|mp4|mpg|vob|rmvb|rm|qmv|rmb"
+video_extensions="`echo ${video_extensions} | tr '[a-z]' '[A-Z]'`|${video_extensions}"
+qvod_downloader=${data}/bin/qvoddownloader.exe
+ 
+do_help=0
+do_show_license=0
+do_listen=0
+do_configure=0
+do_show_queue=0
+do_show_queue_all=0
+do_remove_queue=0
+do_clear_queue=0
+do_show_history=0
+do_retrieve_history=0
+do_clear_history=0
+do_start_jobs=0
+do_start_jobs_all=0
+do_show_workers=0
+do_pause_workers=0
+do_pause_workers_all=0
+do_delete_workers=0
+do_delete_workers_all=0
+do_spawn_job=0
+
+# Functions
+show_help(){
+    cat <<EOF
+${txtund}${bldblu}Lightqvod${txtrst}
+${txtppl}Written by Haonan Yu, based on the Qvod online installer.
+Manage and download qvod resources from web.${txtrst}
+
+${txtyel}usage:${txtrst} lq [-c [video=${txtund}video_path${txtrst}] [cache=${txtund}cache_path${txtrst}]]] [-l] [-h]
+          [-d ${txtund}pid1${txtrst} [${txtund}pid2${txtrst}]..|-D] [-p ${txtund}pid1${txtrst} [${txtund}pid2${txtrst}]..|-P]
+          [-q ${txtund}n_wait${txtrst}|-Q] [-w] [-x ${txtund}id1${txtrst} [${txtund}id2${txtrst}]..|-X]
+          [-r ${txtund}id1${txtrst} [${txtund}id2${txtrst}]..] [-R] [-K] [-s ${txtund}id1${txtrst} [${txtund}id2${txtrst}]..|-S]
+          [-v]
+
+${bldgrn}-c${txtrst} [video=${txtund}video_path${txtrst}] [cache=${txtund}cache_path${txtrst}]]
+       Setup the configuration for ${txtbld}lq${txtrst}. 
+       This includes the video path where you want to archive
+       the downloaded videos and the cache path where you want 
+       to store the downloading buffers. It also checks if you 
+       have installed required softwares. This option can be 
+       used whenever the configured paths need to be changed.
+${bldgrn}-l${txtrst}
+       Let ${txtbld}lq${txtrst} start listening to port 62351.
+${bldgrn}-q${txtrst} ${txtund}n_wait${txtrst}|${bldgrn}-Q${txtrst}
+       Show the latest ${txtund}n_wait${txtrst} jobs in the queue or 
+       show all the jobs in the queue.
+${bldgrn}-x${txtrst} ${txtund}id1${txtrst} [${txtund}id2${txtrst}]..|${bldgrn}-X${txtrst}
+       Remove the selected jobs from the queue or clear
+       the queue.
+${bldgrn}-R${txtrst}
+       Show the complete history of added qvod resources.
+${bldgrn}-r${txtrst} ${txtund}id1${txtrst} [${txtund}id2${txtrst}]..
+       Retrieve the selected resources from the history and
+       re-add them into the queue.
+${bldgrn}-K${txtrst}
+       Clear the history.
+${bldgrn}-s${txtrst} ${txtund}id1${txtrst} [${txtund}id2${txtrst}]..|${bldgrn}-S${txtrst}
+       Start the selected jobs in the queue or start all the jobs
+       in the queue.
+${bldgrn}-w${txtrst}
+       Show the current downloading jobs.
+${bldgrn}-p${txtrst} ${txtund}pid1${txtrst} [${txtund}pid2${txtrst}]..|${bldgrn}-P${txtrst}
+       Pause the selected jobs or pause all the jobs.
+       The paused jobs are put back into the queue.
+${bldgrn}-d${txtrst} ${txtund}pid1${txtrst} [${txtund}pid2${txtrst}]..|${bldgrn}-D${txtrst}
+       Delete the selected jobs or delete all the jobs. 
+       These jobs are removed from the working list.
+${bldgrn}-v${txtrst}
+       Show the license of this software.
+${bldgrn}-h${txtrst}
+       Show this help.
+EOF
+}
+
+configure(){
+    wine_installed=0
+    nc_installed=0
+    video_path_setup=0
+    cache_path_setup=0
+    # check wine
+    [ "`which wine`" != "" ] && wine_ver=`wine --version` && wine_installed=1
+    # check netcat
+    [ "`which nc`" != "" ] && nc_installed=1
+    # setup video path
+    mkdir -p ${video_path} 2>/dev/null
+    (( $? == 0 )) && video_path_setup=1
+    # setup cache path
+    mkdir -p ${cache_path} 2>/dev/null
+    (( $? == 0 )) && cache_path_setup=1
+    ## Ouput configure results
+    (( ${wine_installed} == 1 )) && wine_mes="yes, ${wine_ver}" || wine_mes="${warn}no"
+    (( ${nc_installed} == 1 )) && nc_mes="yes" || nc_mes="${warn}no"
+    (( ${video_path_setup} == 1 )) && video_mes="done" || video_mes="${warn}failed"
+    (( ${cache_path_setup} == 1 )) && cache_mes="done" || cache_mes="${warn}failed"
+    cat <<EOF
+wine          -- ${wine_mes}
+netcat        -- ${nc_mes}
+video_path    -- ${video_mes}, ${video_path}
+cache_path    -- ${cache_mes}, ${cache_path}
+EOF
+    # Update files
+    echo video_path\=${video_path} > ${confile}
+    echo cache_path\=${cache_path} >> ${confile}
+}
+
+## ==== history functions ==== ##
+
+show_history(){
+    cat ${record_path}
+}
+
+clear_history(){
+    > ${record_path}
+    echo ${bldgrn}"history" clear.${txtrst}
+}
+
+retrieve_history(){
+    ids=`echo $@ | sed 's/ /|/g'`
+    while read entry; do
+	# we want to retrieve this entry
+	[[ "${entry}" == @(${ids})* ]] && items=( ${entry} ) && add_queue ${items[@]:2}
+    done < ${record_path}
+}
+
+add_record(){
+    hash_code=$2
+    file_name=$4
+    idx=$((`cat ${record_path} | wc -l` + 1))
+    # If didn't specify file_name, use the default one in the url
+    [[ "${file_name}" == .* ]] && file_name="$3"
+    while read entry; do
+	# Some identical job has been added before
+	[[ "${entry}" == *${hash_code}* ]] && return
+    done < ${record_path}
+    echo "${idx} $(date | sed 's/ /-/g') ${@:1:3} ${file_name}" >> ${record_path}
+}
+
+## ==== queue functions ==== ##
+
+add_queue(){
+    add_record $@
+    hash_code=$2
+    file_name=$4
+    idx=$((`cat ${queue} | wc -l` + 1))
+    # If didn't specify file_name, use the default one in the url
+    [[ "${file_name}" == .* ]] && file_name="$3"
+    while read entry; do
+	# Some identical job has been added before
+	[[ "${entry}" == *${hash_code}* ]] && \
+	    echo ${warn}duplicate job. [hash:${hash_code}] && return
+    done < ${queue}
+    echo "${idx} $(date | sed 's/ /-/g') ${@:1:3} ${file_name}" >> ${queue}
+    echo ${bldgrn}job${txtrst} [hash:${hash_code}] ${bldgrn}into the queue.${txtrst}
+}
+
+remove_queue(){
+    ids=`echo $@ | sed 's/ /|/g'`
+    tmp=${queue}.tmp
+    cnt=0
+    > ${tmp}
+    while read entry; do
+	# We want to remove this entry
+	[[ "${entry}" == @(${ids})* ]] && continue
+	cnt=$((${cnt} + 1))
+	items=( ${entry} )
+	# Update the numbering
+	echo ${cnt} ${items[@]:1} >> ${tmp}
+    done < ${queue}
+    mv ${tmp} ${queue}
+    echo ${bldgrn}job${txtrst} [id:${ids}] ${bldgrn}out of the queue.${txtrst}
+}
+
+clear_queue(){
+    > ${queue}
+    echo ${bldgrn}queue empty.${txtrst}
+}
+
+show_queue(){
+    cat ${queue} | tail -n $1
+}
+
+show_queue_all(){
+    cat ${queue}
+}
+
+## ==== workers functions ==== ##
+
+show_workers(){
+    # first check all the processes and remove the dead ones
+    while read entry; do
+	items=( ${entry} )
+	kill -0 ${items[0]} 2>/dev/null
+	# abnormal death
+	(( $? != 0 )) && pause_workers ${items[0]}
+    done < ${workers}
+    cat ${workers}
+}
+
+is_working(){
+    hash_code=$1
+    while read entry; do
+	# Some identical job is working now
+	[[ "${entry}" == *${hash_code}* ]] && return 1
+    done < ${workers}
+    return 0
+}
+
+remove_workers(){
+    delete=$1 && shift
+    ids=`echo $@ | sed 's/ /|/g'`
+    tmp=${workers}.tmp
+    > ${tmp}
+    remove_flag=0
+    while read entry; do
+	# We keep this entry
+	[[ "${entry}" != @(${ids})* ]] && echo ${entry} >> ${tmp} && continue
+	remove_flag=1
+	# Otherwise kill the process
+	items=( ${entry} )
+	kill ${items[0]} 2>/dev/null
+	# Delete the cache dir
+	if (( ${delete} == 1 )); then
+	    file=`echo ${items[4]} | sed "s/${space_escape}/ /g"`
+	    cache_dir="${cache_path}/${file%.*}"
+	    rm -rf "${cache_dir}"
+	else # Add the paused job to the queue
+	    add_queue ${items[@]:1}
+	fi
+    done < ${workers}
+    mv ${tmp} ${workers}
+    [ "${ids}" == "" ] && ids=all
+    if (( ${remove_flag} == 1 )); then
+	(( ${delete} == 1 )) && msg="deleted" || msg="paused"
+	echo ${bldgrn}${msg} job${txtrst} [pid:${ids}] \
+	    ${bldgrn}"in" the working list.${txtrst}
+    else
+	echo ${bldred}not found job${txtrst} [pid:${ids}] \
+	    ${bldred}"in" the working list.${txtrst}
+    fi
+}
+
+pause_workers(){
+    remove_workers 0 $@
+}
+
+pause_workers_all(){
+    remove_workers 0
+}
+
+delete_workers(){
+    remove_workers 1 $@
+}
+
+delete_workers_all(){
+    remove_workers 1
+}
+
+spawn_job(){
+    hash_code=$2
+    movie_name=`echo $3 | sed "s/${space_escape}/ /g"`
+    file=`echo $4 | sed "s/${space_escape}/ /g"`
+    file_name="${file%.*}"
+    destination_file="${video_path}/${file}"
+    cache_dir="${cache_path}/${file_name}"
+    completed_cache_file="${cache_dir}/${hash_code}+${movie_name}"
+    exe="${cache_dir}/${hash_code}+${movie_name}_${hash_code}.exe"
+    # Copy the downloader exe
+    cp "${qvod_downloader}" "${exe}"
+    # Spawn a job in the background
+    wine "${exe}" >/dev/null 2>&1 &
+    pid=$!
+    # Add the new worker into our working list
+    echo ${pid} $@ >> ${workers}
+    # Wait the process
+    while true; do	
+	# check whether the job finishes
+	ls "${completed_cache_file}" 2>/dev/null
+	if (( $? == 0 )); then
+	    # Move the completed cache file to the destination place
+	    mv "${completed_cache_file}" "${destination_file}"
+            # Delete the finished job from the working list
+	    # This also removes the cache directory
+	    delete_workers ${pid} 
+	    return
+	fi
+	kill -0 ${pid} 2>/dev/null
+	# The job is killed by the user, just return
+	(( $? != 0 )) && return
+	sleep 2
+    done
+}
+
+start_job(){
+    hash_code=$2
+    file=`echo $4 | sed "s/${space_escape}/ /g"`
+    file_name="${file%.*}"
+    cache_dir="${cache_path}/${file_name}"
+    is_working ${hash_code}
+    (( $? == 1 )) && echo ${warn}This job is working! && return 0
+    mkdir -p "${cache_dir}"
+    (( $? == 1 )) && echo ${bldred}Create movie directory failed.${txtrst} && return 1
+    # Ok, let's get started. Call itself
+    nohup lq -z $@ >/dev/null 2>&1 &
+    echo ${bldgrn}job${txtrst} [hash:${hash_code}] ${bldgrn}started.${txtrst}
+    return 0
+}
+
+start_jobs(){
+    ids=`echo $@ | sed 's/ /|/g'`
+    remove_ids=""
+    while read entry; do
+	# We want to start this job
+	if [[ "${entry}" == @(${ids})* ]]; then
+	    items=( ${entry} )
+	    id=${items[0]}
+	    # remove the id and date
+	    start_job ${items[@]:2}
+	    # If start successfully
+	    (( $? == 0 )) && remove_ids="${remove_ids} ${id}"
+	fi
+    done < ${queue}
+    # remove the started jobs from the queue
+    [ "${remove_ids}" != "" ] && remove_queue ${remove_ids}    
+}
+
+## ==== connection functions ==== ##
+
+# A eligible url should be like
+# qvod://<video-length>|<hash-code>|<file-name>|
+check_eligible(){
+    url=$1
+    error=0${url}
+    # Start with 'qvod://'
+    [[ ${url} != qvod://* ]] && \
+	echo ${error}${bldred}[not start with qvod://]${txtrst} && return
+    # End with '|'
+    [[ ${url} != *"|" ]] && \
+	echo ${error}${bldred}[not end with \|]${txtrst} && return
+    # Split the url into three parts
+    blocks=( `echo ${url} | sed 's/qvod:\/\///' | sed 's/ /${space_escape}/g' | sed 's/|/ /g'` )
+    # We should have three elements
+    (( ${#blocks[@]} != 3 )) && \
+	echo ${error}${bldred}[segment number wrong]${txtrst} && return
+    # Make sure the file has the correct extension; @() is for OR
+    [[ ${blocks[2]} != *.@(${video_extensions}) ]] && \
+	echo ${error}${bldred}[extension wrong]${txtrst} && return
+    echo 1${blocks[@]} && return
+}
+
+listen_one(){
+    # Listen on port 62351 and send 'ok' once received data
+    data=`echo "ok" | nc -l ${qvod_port} | tr -d '\n' | sed 's/.*\(qvod:\/\/.*\)/\1/g'`
+    # Check whether this data is in eligible format or not
+    echo $(check_eligible ${data})
+}
+
+listen(){
+    while true; do
+	ret=$(listen_one)
+	code=${ret:0:1}
+	info=${ret:1:${#ret}}
+	extension=${info##*.}
+	if [ ${code} == "0" ]; then
+	    echo ${bldred}invalid url:${txtrst} ${info}
+	else # Add the current url into queue	    
+	    echo -ne "rename file(without extension, skip by ${txtund}enter${txtrst}):"
+	    read file_name
+	    file_name=`echo ${file_name} | sed "s/ /${space_escape}/g"`
+	    add_queue ${info} "${file_name}.${extension}"
+	fi
+	echo -ne continue listening?\(y/${txtund}n${txtrst}\)
+	read decision
+	! ((( ${#decision} == 1)) && [[ ${decision} == @(y|Y) ]]) && break
+    done
+}
+
+## ==== auxilary functions ==== ##
+
+integer(){
+    [[ $1 =~ ^[0-9]+$ ]] && echo 1 && return
+    echo 0
+}
+
+suggest(){
+    echo try ${txtbld}lq -h${txtrst} "for" more information
+}
+
+show_license(){
+    cat <<EOF
+Copyright (c) 2013 Haonan Yu
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+EOF
+}
+
+## ==== program main ==== ##
+
+# Check on arguments
+if (( $# < 1 )); then
+    echo ${bldred}What do you want me to do?${txtrst}
+    suggest
+    exit 1
+fi
+
+# read configuration
+ls ${confile} >/dev/null 2>&1
+if (( $? == 0 )); then
+    while read path; do
+	[[ ${path} == video_path\=* ]] && video_path=`echo ${path} | sed 's/video_path=//'`
+	[[ ${path} == cache_path\=* ]] && cache_path=`echo ${path} | sed 's/cache_path=//'`
+    done < ${confile}
+fi
+
+# Process arguments
+while (($# > 0)); do
+    arg=$1
+    match=0
+    [ "${arg}" == "-h" ] && do_help=1 && match=1
+    [ "${arg}" == "-c" ] && do_configure=1 && match=1
+    [ "${arg}" == "-l" ] && do_listen=1 && match=1
+    if [ "${arg}" == "-q" ]; then
+	do_show_queue=1 && shift && n_wait=$1
+	(( $(integer ${n_wait}) == 1 )) && match=1
+    fi
+    [ "${arg}" == "-Q" ] && do_show_queue_all=1 && match=1
+    [ "${arg}" == "-x" ] && do_remove_queue=1
+    [ "${arg}" == "-X" ] && do_clear_queue=1 && match=1
+    [ "${arg}" == "-r" ] && do_retrieve_history=1
+    [ "${arg}" == "-R" ] && do_show_history=1 && match=1
+    [ "${arg}" == "-s" ] && do_start_jobs=1
+    [ "${arg}" == "-S" ] && do_start_jobs_all=1 && match=1
+    [ "${arg}" == "-p" ] && do_pause_workers=1
+    [ "${arg}" == "-P" ] && do_pause_workers_all=1 && match=1
+    [ "${arg}" == "-d" ] && do_delete_workers=1
+    [ "${arg}" == "-D" ] && do_delete_workers_all=1 && match=1
+    if [ "${arg}" == "-x" ] || [ "${arg}" == "-r" ] || \
+	[ "${arg}" == "-s" ] || [ "${arg}" == "-p" ] || [ "${arg}" == "-d" ]; then
+	ids=""
+	while true; do
+	    id=$2
+	    ! (( $(integer ${id}) == 1 )) && break
+	    ids="${ids} ${id}"
+	    match=1 && shift
+	done
+    fi
+    [ "${arg}" == "-w" ] && do_show_workers=1 && match=1
+    [ "${arg}" == "-v" ] && do_show_license=1 && match=1
+    [ "${arg}" == "-K" ] && do_clear_history=1 && match=1
+    [[ ${arg} == video\=* ]] && (( ${do_configure} == 1 )) && \
+	video_path=`echo ${arg} | sed 's/video=//'` && match=1
+    [[ ${arg} == cache\=* ]] && (( ${do_configure} == 1 )) && \
+	cache_path=`echo ${arg} | sed 's/cache=//'` && match=1
+
+    ## This option is PRIVATE. Should NEVER be used by users!####
+    [ "${arg}" == "-z" ] && do_spawn_job=1 && break
+    #############################################################
+
+    (( match == 0 )) && echo "${bldred}Wrong arguments.${txtrst}" && \
+        suggest && exit 2
+    shift
+done
+
+# Private function #####################
+(( ${do_spawn_job} == 1 )) && shift && \
+    spawn_job $@ && exit 0
+########################################
+
+# Execute
+(( ${do_help} == 1 )) && show_help && exit 0
+(( ${do_show_license} == 1 )) && show_license && exit 0
+
+(( ${do_configure} == 1 )) && configure && exit 0
+
+if ([ "${video_path}" == "" ] || [ "${cache_path}" == "" ]); then
+    echo ${bldred}Please configure the paths first!${txtrst}
+    suggest
+    exit 1
+fi
+
+(( ${do_listen} == 1 )) && listen && exit 0
+(( ${do_show_queue} == 1 )) && show_queue ${n_wait} && exit 0
+(( ${do_show_queue_all} == 1 )) && show_queue_all && exit 0
+(( ${do_remove_queue} == 1 )) && remove_queue ${ids} && exit 0
+(( ${do_clear_queue} == 1 )) && clear_queue && exit 0
+(( ${do_show_history} == 1 )) && show_history && exit 0
+(( ${do_retrieve_history} == 1 )) && retrieve_history ${ids} && exit 0
+(( ${do_clear_history} == 1 )) && clear_history && exit 0
+(( ${do_start_jobs} == 1 )) && start_jobs ${ids} && exit 0
+(( ${do_start_jobs_all} == 1 )) && start_jobs && exit 0
+(( ${do_show_workers} == 1 )) && show_workers && exit 0
+(( ${do_pause_workers} == 1 )) && pause_workers ${ids} && exit 0
+(( ${do_pause_workers_all} == 1 )) && pause_workers_all && exit 0
+(( ${do_delete_workers} == 1 )) && delete_workers ${ids} && exit 0
+(( ${do_delete_workers_all} == 1 )) && delete_workers_all && exit 0
